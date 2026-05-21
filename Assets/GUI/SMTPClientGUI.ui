@@ -442,7 +442,6 @@
     <property name="title">
      <string>Help</string>
     </property>
-    <addaction name="actionUpdates"/>
     <addaction name="actionAbout"/>
    </widget>
    <widget class="QMenu" name="menuServer">
@@ -450,6 +449,8 @@
      <string>Server</string>
     </property>
     <addaction name="actionDisconnect"/>
+    <addaction name="separator"/>
+    <addaction name="actionCancelCurrent"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuOptions"/>
@@ -536,6 +537,14 @@
    </property>
    <property name="text">
     <string>Reconnect</string>
+   </property>
+  </action>
+  <action name="actionCancelCurrent">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Cancel Current Operation</string>
    </property>
   </action>
  </widget>

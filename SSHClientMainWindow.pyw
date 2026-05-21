@@ -6,15 +6,12 @@ Github: https://github.com/MatthewHahn73/Py-SFTP-Client
 
 Current Bugs
     -Progress bar in bottom left of the status bar is not aligned left properly at certain window resolutions
-    -If a directory is deleted while in that directory and the refresh button is hit, will throw inaccurate error message
-    -Processes flow causes the directory to be updated in the directory on every file upload/download 
-        -When downloading/uploading files in sub directories causes the application to briefly navigate to those directories 
-            -Not really a bug, but kind of a confusing visual mess
-            -Fix?
+Current Issues
+    -Not very effecient when moving lots of small files at once
+        -Implement yield?
+    -Strange stuttering after large transfer when resizing window
 Future Features
-    -Add functionality for the 'Help' and 'Update' buttons in the menu bar
-    -Add more informative information on files in both directories (type of file, size)
-        -Images for folder/files?
+    -Need to send a signal back to update the views when a new folder is created
     -Add in a confirmation prompt for deletions
     -Add in the ability to safely cancel an operation (Upload/Download)
     -Add in a sync directories button
@@ -84,7 +81,6 @@ Loaded GUI Resources (And structure)
             -actionClose (QAction)
         -menuHelp (QMenu)
             -actionAbout (QAction)
-            -actionUpdates (QAction)
         -menuOptions (QMenu)
             -actionShow_Password (QAction)
             -menuLogging_Level (QAction)
@@ -94,10 +90,11 @@ Loaded GUI Resources (And structure)
                 -actionWarning (QAction)
         -menuServer (QMenu)
             -actionDisconnect (QAction)
+            -actionCancelCurrent (QAction)
     -SMTPStatusBar (QStatusBar)
 """
 
-import os, logging, sys, paramiko, platform, json, math
+import os, logging, sys, paramiko, platform, json, math, webbrowser
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import *
 from PyQt6.QtCore import *
@@ -111,6 +108,7 @@ from Assets.Modules import \
 #Constants
 VERSIONNUMBER = "QTSFTP Client v1.0"
 ERRORTEMPLATE = "A(n) {0} exception occurred. Arguments:\n{1!r}"
+REPOSITORYLINK = "https://github.com/MatthewHahn73/Py-SFTP-Client"
 
 #Main window
 class SSHClientMainWindow(QMainWindow):
@@ -150,6 +148,7 @@ class SSHClientMainWindow(QMainWindow):
         self.actionWarning.triggered.connect(lambda: self.ToggleLoggingLevel("Warning"))
         self.actionInfo.triggered.connect(lambda: self.ToggleLoggingLevel("Info"))
         self.actionDebugging.triggered.connect(lambda: self.ToggleLoggingLevel("Debug"))
+        self.actionAbout.triggered.connect(lambda: self.OpenWebBrowserLink(REPOSITORYLINK))
 
         #Set button triggers
         self.E_ConnectionButton.clicked.connect(self.ExecuteConnectButton)
@@ -289,7 +288,7 @@ class SSHClientMainWindow(QMainWindow):
                 self.PWorker.transferProgress.connect(self.FileTransferProgress)
                 self.PWorker.transferCompleteLocal.connect(self.LocalQueryResults)
                 self.PWorker.transferCompleteRemote.connect(self.ServerQueryResults)
-                self.PWorker.completeDataSignal.connect(self.FileTransferResults)
+                self.PWorker.completeDataSignal.connect(self.FileTransferCompleted)
                 self.PThread.start()
             else:
                 logging.warning("Cannot transfer files without an active SFTP connection")
@@ -533,6 +532,9 @@ class SSHClientMainWindow(QMainWindow):
             return os.path.basename(os.path.abspath(ItemPath)).startswith('.')
         return False 
 
+    def OpenWebBrowserLink(self, Link):
+        webbrowser.open(Link) 
+
     def closeEvent(self, event):
         logging.getLogger().removeHandler(self.LogHandler)
         del self.LogHandler
@@ -737,7 +739,7 @@ class SSHClientMainWindow(QMainWindow):
             logging.error(ERRORTEMPLATE.format(type(E).__name__, E.args)) 
 
     @pyqtSlot(object)
-    def FileTransferResults(self, params):
+    def FileTransferCompleted(self, params):
         try:
             self.StatusBarProgressBar.hide()
             if self.PThread.isRunning():
@@ -751,7 +753,7 @@ class SSHClientMainWindow(QMainWindow):
                     "Server Path" : params["Server Path"]
                     , "Directory Items" : params["Server Results"]
                 })
-                logging.info("All file(s) successfully transferred")
+                logging.info(f"All file(s) successfully transferred. Runtime: {params["Runtime"]} second(s)")
             else:
                 raise params["Error Thrown"]
         except Exception as E:
