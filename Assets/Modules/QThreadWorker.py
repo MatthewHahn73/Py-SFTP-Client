@@ -1,5 +1,5 @@
-from PyQt6.QtCore import *
-import datetime, stat, os, time
+from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject
+import datetime, stat, os, time, math
 
 class QThreadWorker(QObject):
     serverMessage = pyqtSignal(object)
@@ -15,8 +15,9 @@ class QThreadWorker(QObject):
         self.SFTPObject = SFTPObj
         self.ConnectionParameters = Conn
         self.MiscParameters = Misc
-        self.CancelCalled = False
+        self.CancelSignal = False
 
+    #Opens SSH/SFTP connection and emits for the default ssh directory path for application use
     def ConnectAndOpenSFTP(self):
         try:
             self.SSHObject.connect(self.ConnectionParameters["Host"], self.ConnectionParameters["Port"], self.ConnectionParameters["Username"], self.ConnectionParameters["Password"])
@@ -43,6 +44,7 @@ class QThreadWorker(QObject):
                 "Error Thrown" : e
             })
 
+    #Safely disconnects an SSH/SFTP connection, if ones exists
     def DisconnectAndCloseSFTP(self):
         try:
             if self.SFTPObject is not None:
@@ -61,6 +63,7 @@ class QThreadWorker(QObject):
                 "Error Thrown" : e
             })
 
+    #Request handler for getting the required local directory information
     def QueryDirectoriesContentsLocalRequest(self):
         try:
             QueryResults = self.QueryForADirectoriesContentsLocal(self.MiscParameters["Local Path"], self.MiscParameters["File Extensions"])
@@ -76,6 +79,7 @@ class QThreadWorker(QObject):
                 "Error Thrown" : e
             })
 
+    #Function to return the local directory information for a given local file path. Requires file extension information for reference
     def QueryForADirectoriesContentsLocal(self, LocalPath, FileExtensions):
         if not os.path.isdir(LocalPath):
             return Exception(f"Cannot navigate to '{LocalPath}'. It is a file")
@@ -100,6 +104,7 @@ class QThreadWorker(QObject):
                     })
             return DirectoryItemList
 
+    #Request handler for getting the required remote directory information
     def QueryDirectoriesContentsServerRequest(self):
         try:
             QueryResults = self.QueryForADirectoriesContentsRemote(self.MiscParameters["Server Path"], self.MiscParameters["File Extensions"])
@@ -115,6 +120,7 @@ class QThreadWorker(QObject):
                 "Error Thrown" : e
             })
 
+    #Function to return the remote directory information for a given remote file path. Requires file extension information for reference
     def QueryForADirectoriesContentsRemote(self, ServerPath, FileExtensions):
         PathAttributes = self.SFTPObject.lstat(ServerPath)
         if stat.S_ISREG(PathAttributes.st_mode):
@@ -141,10 +147,14 @@ class QThreadWorker(QObject):
                 })
             return DirectoryItemList
             
+    #Request handler for renaming a remote file. Returns the remote directory information to update the application
     def RenameFileOrDirectory(self):
         try:
             if self.MiscParameters["Old Name"] != self.MiscParameters["New Name"]:
-                self.SFTPObject.rename(self.MiscParameters["Old Name"], self.MiscParameters["New Name"])
+                self.SFTPObject.rename(
+                    self.MiscParameters["Old Name"]
+                    , self.MiscParameters["New Name"]
+                )
                 QueryResults = self.QueryForADirectoriesContentsRemote(self.MiscParameters["Server Path"], self.MiscParameters["File Extensions"])
                 if (type(QueryResults) == list):
                     self.completeDataSignal.emit({
@@ -165,17 +175,19 @@ class QThreadWorker(QObject):
                 "Error Thrown" : e
             })
 
+    #Request handler for deleting remote files. Returns the remote directory information to update the application
     def DeleteFileOrDirectoryServerRequest(self):
         try:
             StartTime = time.time()
-            for Item in self.MiscParameters["Directory Items"]:
-                self.DeleteFileOrDirectory(os.path.join(self.MiscParameters["Server Path"], Item["Item Name"]))
+            self.DeleteFilesOrDirectories(
+                self.MiscParameters["Directory Items"]
+                , self.MiscParameters["Server Path"]
+            )
             QueryResults = self.QueryForADirectoriesContentsRemote(self.MiscParameters["Server Path"], self.MiscParameters["File Extensions"])
             if (type(QueryResults) == list):
                 self.completeDataSignal.emit({
                     "Server Path" : self.MiscParameters["Server Path"]
                     , "Server Results" : QueryResults
-                    , "Runtime" : round((time.time() - StartTime), 2)
                 })
             else:
                 raise QueryResults
@@ -184,21 +196,26 @@ class QThreadWorker(QObject):
                 "Error Thrown" : e
             })
 
-    def DeleteFileOrDirectory(self, Path):
-        if not self.CancelSignal:
-            if self.ReturnRemoteDirectory(Path):
-                for PathItem in self.SFTPObject.listdir(Path):
-                    self.DeleteFileOrDirectory(os.path.join(Path, PathItem)) 
-                self.SFTPObject.rmdir(Path)
+    #Recursive function to delete a list of given items and their sub directory contents, if any
+    def DeleteFilesOrDirectories(self, ItemsToDelete, ItemPath):
+        for Item in ItemsToDelete:
+            CurrentItemPath = os.path.join(ItemPath, Item["Item Name"])
+            if "Folder" in Item["Item Type"] and self.ReturnRemoteDirectory(CurrentItemPath):
+                self.DeleteFilesOrDirectories(
+                    self.QueryForADirectoriesContentsRemote(CurrentItemPath, self.MiscParameters["File Extensions"])
+                    , CurrentItemPath
+                ) 
+                self.SFTPObject.rmdir(CurrentItemPath)
                 self.serverMessage.emit({
-                    "Message" : f"Server directory successfully deleted: '{Path}'"
+                    "Message" : f"Server directory successfully deleted: '{CurrentItemPath}'"
                 })
             else:
-                self.SFTPObject.remove(Path)       
+                self.SFTPObject.remove(CurrentItemPath)
                 self.serverMessage.emit({
-                    "Message" : f"Server file successfully deleted: '{Path}'"
+                    "Message" : f"Server file successfully deleted: '{CurrentItemPath}'"
                 })
 
+    #Request handler for transfering files between a remote and local machine
     def TransferFilesServerRequest(self):     
         try:
             StartTime = time.time()
@@ -206,89 +223,85 @@ class QThreadWorker(QObject):
                 self.MiscParameters["Transfer Data"]
                 , self.MiscParameters["Local Path"]
                 , self.MiscParameters["Server Path"]
-                , self.MiscParameters["Transfer Type"]
-                , self.MiscParameters["File Extensions"]
             )
             self.completeDataSignal.emit({
                 "Local Path" : self.MiscParameters["Local Path"]
                 , "Local Results" : self.QueryForADirectoriesContentsLocal(self.MiscParameters["Local Path"], self.MiscParameters["File Extensions"]) 
                 , "Server Path" : self.MiscParameters["Server Path"]
                 , "Server Results" : self.QueryForADirectoriesContentsRemote(self.MiscParameters["Server Path"], self.MiscParameters["File Extensions"])
-                , "Runtime" : round((time.time() - StartTime), 2)
+                , "Runtime" : math.ceil((time.time() - StartTime) * (10 ** 2)) / (10 ** 2)
             })        
         except Exception as e: 
             self.completeDataSignal.emit({
                 "Error Thrown" : e
             })
 
-    def TransferFiles(self, TransferItems, LocalViewPath, ServerViewPath, TypeOfTransfer, FileExtensions):             
+    #Recursive function that takes a given list of directory items from either the local or remote machines, a local path, and a remote path and moves the files appropriately
+    def TransferFiles(self, TransferItems, LocalViewPath, ServerViewPath):             
         for Item in TransferItems:
             if not self.CancelSignal:
-                #Recursion case. Fetches the next directory's attributes and calls the function again
-                if Item["Item Type"] == "Folder":
-                    NextFolderLocal = f"{LocalViewPath}/{Item["Item Name"]}"
-                    NextFolderServer = f"{ServerViewPath}/{Item["Item Name"]}"
-                    if TypeOfTransfer == "Download":
-                        QueryResults = self.QueryForADirectoriesContentsRemote(NextFolderServer, FileExtensions)
-                        if not os.path.exists(NextFolderLocal):
-                            os.mkdir(NextFolderLocal)
+                NextItemLocal = os.path.join(LocalViewPath, Item["Item Name"])
+                NextItemServer = os.path.join(ServerViewPath, Item["Item Name"]) 
+                if "Folder" in Item["Item Type"]: 
+                    if self.MiscParameters["Transfer Type"] == "Download":
+                        if not os.path.exists(NextItemLocal):
+                            os.mkdir(NextItemLocal)
                             self.serverMessage.emit({
-                                "Message" : f"Local folder sucessfully created at '{NextFolderLocal}'"
+                                "Message" : f"Local folder sucessfully created at '{NextItemLocal}'"
                             })
-                    elif TypeOfTransfer == "Upload":
-                        NextPathItems = os.listdir()
-                        QueryResults = self.QueryForADirectoriesContentsLocal(NextFolderLocal, FileExtensions)
-                        if not self.ReturnRemoteDirectory(NextFolderServer):
-                            self.SFTPObject.mkdir(NextFolderServer)
+                        QueryResults = self.QueryForADirectoriesContentsRemote(NextItemServer, self.MiscParameters["File Extensions"])
+                    elif self.MiscParameters["Transfer Type"] == "Upload":
+                        if not self.ReturnRemoteDirectory(NextItemServer):
+                            self.SFTPObject.mkdir(NextItemServer)
                             self.serverMessage.emit({
-                                "Message" : f"Server folder sucessfully created at '{NextFolderServer}'"
+                                "Message" : f"Server folder sucessfully created at '{NextItemServer}'"
                             })
-                    self.TransferFiles(QueryResults, NextFolderLocal, NextFolderServer, TypeOfTransfer, FileExtensions)
-                #Base case - Fetches or uploads file in the list
-                else:
-                    ServerPathItem = f"{ServerViewPath}/{Item["Item Name"]}"
-                    LocalPathItem = f"{LocalViewPath}/{Item["Item Name"]}"
-                    if TypeOfTransfer == "Download":
+                        QueryResults = self.QueryForADirectoriesContentsLocal(NextItemLocal, self.MiscParameters["File Extensions"])
+                    self.TransferFiles(QueryResults, NextItemLocal, NextItemServer)
+                else:  
+                    if self.MiscParameters["Transfer Type"] == "Download":
                         try:
-                            FileStat = self.SFTPObject.stat(ServerPathItem)
+                            FileStat = self.SFTPObject.stat(NextItemServer)
                             self.serverMessage.emit({
-                                "Message" : f"Starting transfer '{LocalPathItem}' ← '{ServerPathItem}'..."
+                                "Message" : f"Starting transfer '{NextItemLocal}' ← '{NextItemServer}'..."
                                 , "Item Size": FileStat.st_size
                             })
-                            self.SFTPObject.get(ServerPathItem, LocalPathItem, callback=self.TransferProgess)
+                            self.SFTPObject.get(NextItemServer, NextItemLocal, callback=self.TransferProgess)
                             if LocalViewPath == self.MiscParameters["Local Path"]: #Only update the view for the current path 
                                 self.transferCompleteLocal.emit({
                                     "Local Path" : LocalViewPath
-                                    , "Directory Items" : self.QueryForADirectoriesContentsLocal(LocalViewPath, FileExtensions)
+                                    , "Directory Items" : self.QueryForADirectoriesContentsLocal(LocalViewPath, self.MiscParameters["File Extensions"])
                                 })
                         except FileNotFoundError as FNF: 
                             self.serverMessage.emit({
-                                "Message" : f"File not found or symlink broken: '{ServerPathItem}'. Skipping ..."
+                                "Message" : f"File not found or symlink broken: '{NextItemServer}'. Skipping ..."
                             })
-                    elif TypeOfTransfer == "Upload": 
+                    elif self.MiscParameters["Transfer Type"] == "Upload": 
                         try:
-                            FileSize = os.path.getsize(LocalPathItem)
+                            FileSize = os.path.getsize(NextItemLocal)
                             self.serverMessage.emit({
-                                "Message" : f"Starting transfer '{LocalPathItem}' → '{ServerPathItem}'..."
+                                "Message" : f"Starting transfer '{NextItemLocal}' → '{NextItemServer}'..."
                                 , "Item Size": FileSize
                             })
-                            self.SFTPObject.put(LocalPathItem, ServerPathItem, callback=self.TransferProgess)
+                            self.SFTPObject.put(NextItemLocal, NextItemServer, callback=self.TransferProgess)
                             if ServerViewPath == self.MiscParameters["Server Path"]: 
                                 self.transferCompleteRemote.emit({
                                     "Server Path" : ServerViewPath
-                                    , "Directory Items" : self.QueryForADirectoriesContentsRemote(ServerViewPath, FileExtensions)
+                                    , "Directory Items" : self.QueryForADirectoriesContentsRemote(ServerViewPath, self.MiscParameters["File Extensions"])
                                 })
                         except FileNotFoundError as FNF: 
                             self.serverMessage.emit({
-                                "Message" : f"File not found or symlink broken: '{LocalPathItem}'. Skipping ..."
+                                "Message" : f"File not found or symlink broken: '{NextItemLocal}'. Skipping ..."
                             })
         
+    #Callback function to update the application with transfer progress information
     def TransferProgess(self, bytesSoFar, totalBytes):
         self.transferProgress.emit({
             "Current Bytes": bytesSoFar
             , "Total Bytes": totalBytes
         })
 
+    #Function to return whether a path is a server path or a local path
     def ReturnRemoteDirectory(self, ServerPath):
         try:
             DirectoryStats = self.SFTPObject.stat(ServerPath)
@@ -296,10 +309,12 @@ class QThreadWorker(QObject):
         except IOError:
             return False
     
+    #Function that returns a readable string about the file type
     def ReturnFileExtension(self, FileName, FileExtensions):
         Root, Extension = os.path.splitext(FileName)
         return FileExtensions[Extension] if Extension in FileExtensions else "File"
 
+    #Function that returns a readable file size type given a parameter of byte count
     def ReturnReadableFileSize(self, Size):
         Units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
         Index = 0
@@ -308,6 +323,11 @@ class QThreadWorker(QObject):
             Index += 1
         return f"{Size:.2f} {Units[Index]}"
 
-    @pyqtSignal(object)
+    #Signal function to set the cancel signal of a transfer
+    @pyqtSlot()
     def CancelCurrentOperation(self):
-        self.CancelCalled = True
+        self.CancelSignal = True
+        print("Test")
+        self.serverMessage.emit({
+            "Message" : f"Made it to the server message function"
+        })

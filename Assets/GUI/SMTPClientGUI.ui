@@ -544,7 +544,7 @@
     <bool>false</bool>
    </property>
    <property name="text">
-    <string>Cancel Current Operation</string>
+    <string>Cancel Transfer</string>
    </property>
   </action>
  </widget>

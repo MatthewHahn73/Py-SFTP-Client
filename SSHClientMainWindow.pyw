@@ -112,6 +112,8 @@ REPOSITORYLINK = "https://github.com/MatthewHahn73/Py-SFTP-Client"
 
 #Main window
 class SSHClientMainWindow(QMainWindow):
+    CancelSignal = pyqtSignal()
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         uic.loadUi("Assets/GUI/SMTPClientGUI.ui", self)    #Load main GUI layout
@@ -143,6 +145,7 @@ class SSHClientMainWindow(QMainWindow):
         #Set menu item triggers
         self.actionClose.triggered.connect(self.close)
         self.actionDisconnect.triggered.connect(self.ExecuteDisconnectButton)
+        self.actionCancelCurrent.triggered.connect(self.ExecuteCancelTransfer)
         self.actionShow_Password.triggered.connect(self.TogglePasswords)
         self.actionError.triggered.connect(lambda: self.ToggleLoggingLevel("Error"))
         self.actionWarning.triggered.connect(lambda: self.ToggleLoggingLevel("Warning"))
@@ -284,12 +287,14 @@ class SSHClientMainWindow(QMainWindow):
                     )
                 self.PWorker.moveToThread(self.PThread)
                 self.PThread.started.connect(self.PWorker.TransferFilesServerRequest)  
+                self.CancelSignal.connect(self.PWorker.CancelCurrentOperation)
                 self.PWorker.serverMessage.connect(self.ServerUpdateMessage)
                 self.PWorker.transferProgress.connect(self.FileTransferProgress)
                 self.PWorker.transferCompleteLocal.connect(self.LocalQueryResults)
                 self.PWorker.transferCompleteRemote.connect(self.ServerQueryResults)
                 self.PWorker.completeDataSignal.connect(self.FileTransferCompleted)
                 self.PThread.start()
+                self.actionCancelCurrent.setEnabled(True)
             else:
                 logging.warning("Cannot transfer files without an active SFTP connection")
         else:
@@ -391,6 +396,9 @@ class SSHClientMainWindow(QMainWindow):
     def ExecuteConnectedNavigateOneUpButton(self):
         OneDirectoryUp = os.path.dirname(self.ConnectedDirEdit.text())
         self.LoadGivenRemoteDirectory(OneDirectoryUp) 
+
+    def ExecuteCancelTransfer(self):
+        self.CancelSignal.emit() 
 
     def CurrentItemDoubleClicked(self, index):
         if index.isValid():
@@ -497,11 +505,6 @@ class SSHClientMainWindow(QMainWindow):
         self.B_PasswordEdit.setEchoMode(QLineEdit.EchoMode.Password \
                                         if self.B_PasswordEdit.echoMode() == QLineEdit.EchoMode.Normal \
                                             else QLineEdit.EchoMode.Normal)
-
-    def ToggleServerSpecificMenuButtons(self, Toggle):
-        self.actionCancel_Current_Operation.setEnabled(Toggle)
-        self.actionDisconnect.setEnabled(Toggle)
-        self.actionReconnect.setEnabled(Toggle)
             
     def UpdateStatusLabel(self, Message, Color):
         self.StatusBarLabel.setText(Message)
@@ -588,7 +591,7 @@ class SSHClientMainWindow(QMainWindow):
                 self.SSHObject, self.SFTPObject = params["SSH Object"], params["SFTP Object"]
                 SSHTransport = self.SSHObject.get_transport()
                 if (SSHTransport is not None and SSHTransport.is_active()) and not (self.SFTPObject.sock.closed):
-                    self.ToggleServerSpecificMenuButtons(True)
+                    self.actionDisconnect.setEnabled(True)
                     TransportInfo = self.SSHObject.get_transport().getpeername()
                     self.UpdateStatusLabel(f"Connected to {TransportInfo[0]}:{TransportInfo[1]}", "#2bfb75")
                     logging.info(f"SSH connection successful to {TransportInfo[0]} on port {TransportInfo[1]}")
@@ -612,7 +615,7 @@ class SSHClientMainWindow(QMainWindow):
                 self.SSHObject = params["SSH Object"]
                 SSHTransport = self.SSHObject.get_transport()
                 if SSHTransport is None or not SSHTransport.is_active():
-                    self.ToggleServerSpecificMenuButtons(False)
+                    self.actionDisconnect.setEnabled(False)
                     self.ConnectedMachineDirectoryTree.setModel(None)
                     self.ConnectedDirEdit.setText("")
                     self.UpdateStatusLabel("Disconnected", "white")
@@ -741,6 +744,7 @@ class SSHClientMainWindow(QMainWindow):
     @pyqtSlot(object)
     def FileTransferCompleted(self, params):
         try:
+            self.actionCancelCurrent.setEnabled(False)
             self.StatusBarProgressBar.hide()
             if self.PThread.isRunning():
                 self.PThread.quit()
