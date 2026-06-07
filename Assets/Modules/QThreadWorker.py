@@ -1,5 +1,5 @@
+import datetime, stat, os, time, math, re
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, QObject
-import datetime, stat, os, time, math
 
 class QThreadWorker(QObject):
     serverMessage = pyqtSignal(object)
@@ -59,6 +59,36 @@ class QThreadWorker(QObject):
             else:
                 raise Exception(f"Unable to safely disconnect from the server")
         except Exception as e:
+            self.completeDataSignal.emit({
+                "Error Thrown" : e
+            })
+
+    def CreateFolderCurrentDirectoryRequest(self):
+        try:
+            DirItems = os.listdir(self.MiscParameters["Local Path"])
+            NewFolderName = self.ReturnLargestNewFolderName(self.MiscParameters["Local Path"], DirItems)
+            os.mkdir(f"{NewFolderName}")
+            QueryResults = self.QueryForADirectoriesContentsLocal(self.MiscParameters["Local Path"], self.MiscParameters["File Extensions"])
+            self.completeDataSignal.emit({
+                "Local Path" : self.MiscParameters["Local Path"] 
+                , "Directory Items" : QueryResults
+            })
+        except Exception as e: 
+            self.completeDataSignal.emit({
+                "Error Thrown" : e
+            })
+
+    def CreateFolderRemoteDirectoryRequest(self):
+        try:
+            DirItems = self.SFTPObject.listdir(self.MiscParameters["Server Path"])
+            NewFolderName = self.ReturnLargestNewFolderName(self.MiscParameters["Server Path"], DirItems)
+            self.SFTPObject.mkdir(f"{NewFolderName}")
+            QueryResults = self.QueryForADirectoriesContentsRemote(self.MiscParameters["Server Path"], self.MiscParameters["File Extensions"])
+            self.completeDataSignal.emit({
+                "Server Path" : self.MiscParameters["Server Path"] 
+                , "Directory Items" : QueryResults
+            })
+        except Exception as e: 
             self.completeDataSignal.emit({
                 "Error Thrown" : e
             })
@@ -151,20 +181,23 @@ class QThreadWorker(QObject):
     def RenameFileOrDirectory(self):
         try:
             if self.MiscParameters["Old Name"] != self.MiscParameters["New Name"]:
-                self.SFTPObject.rename(
-                    self.MiscParameters["Old Name"]
-                    , self.MiscParameters["New Name"]
-                )
-                QueryResults = self.QueryForADirectoriesContentsRemote(self.MiscParameters["Server Path"], self.MiscParameters["File Extensions"])
-                if (type(QueryResults) == list):
-                    self.completeDataSignal.emit({
-                        "Old Name" : self.MiscParameters["Old Name"]
-                        , "New Name" : self.MiscParameters["New Name"]
-                        , "Server Path" : self.MiscParameters["Server Path"]
-                        , "Server Results" : QueryResults
-                    })        
+                if not self.ReturnRemoteFileExists(os.path.join(self.MiscParameters["Server Path"], self.MiscParameters["New Name"])):
+                    self.SFTPObject.rename(
+                        self.MiscParameters["Old Name"]
+                        , self.MiscParameters["New Name"]
+                    )
+                    QueryResults = self.QueryForADirectoriesContentsRemote(self.MiscParameters["Server Path"], self.MiscParameters["File Extensions"])
+                    if (type(QueryResults) == list):
+                        self.completeDataSignal.emit({
+                            "Old Name" : self.MiscParameters["Old Name"]
+                            , "New Name" : self.MiscParameters["New Name"]
+                            , "Server Path" : self.MiscParameters["Server Path"]
+                            , "Server Results" : QueryResults
+                        })        
+                    else:
+                        raise QueryResults
                 else:
-                    raise QueryResults
+                    raise Exception(f"'{self.MiscParameters["New Name"]}' already exists in '{self.MiscParameters["Server Path"]}'")
             else: 
                 self.completeDataSignal.emit({
                     "Old Name" : self.MiscParameters["Old Name"]
@@ -302,17 +335,41 @@ class QThreadWorker(QObject):
         })
 
     #Function to return whether a path is a server path or a local path
-    def ReturnRemoteDirectory(self, ServerPath):
+    def ReturnRemoteDirectory(self, Path):
         try:
-            DirectoryStats = self.SFTPObject.stat(ServerPath)
+            DirectoryStats = self.SFTPObject.stat(Path)
             return stat.S_ISDIR(DirectoryStats.st_mode)
         except IOError:
             return False
+        return False
+
+    #Function that returns whether or not a file exists in the remote directory
+    def ReturnRemoteFileExists(self, FilePath):
+        try:
+            self.SFTPObject.stat(FilePath)
+            return True
+        except FileNotFoundError:
+            return False
+        return False
     
     #Function that returns a readable string about the file type
     def ReturnFileExtension(self, FileName, FileExtensions):
         Root, Extension = os.path.splitext(FileName)
         return FileExtensions[Extension] if Extension in FileExtensions else "File"
+
+    #Function that returns the largest usable filename in a directory (used for new folder creation)
+    def ReturnLargestNewFolderName(self, Path, DirItems):
+        DirItemsWithNewFolder = [nm for ps in ["New Folder"] for nm in DirItems if ps in nm]
+        if len(DirItemsWithNewFolder) > 0:
+            DirItemsWithNewFolder.sort()
+            LargestNumber = re.findall(r'\d+', DirItemsWithNewFolder[-1])
+            if LargestNumber:
+                LargestNumberValue = int(LargestNumber[0])
+            else:
+                LargestNumberValue = 1
+            return os.path.join(Path, f"New Folder{LargestNumberValue + 1}")
+        else:
+            return os.path.join(Path, "New Folder")
 
     #Function that returns a readable file size type given a parameter of byte count
     def ReturnReadableFileSize(self, Size):
@@ -322,12 +379,3 @@ class QThreadWorker(QObject):
             Size /= 1024
             Index += 1
         return f"{Size:.2f} {Units[Index]}"
-
-    #Signal function to set the cancel signal of a transfer
-    @pyqtSlot()
-    def CancelCurrentOperation(self):
-        self.CancelSignal = True
-        print("Test")
-        self.serverMessage.emit({
-            "Message" : f"Made it to the server message function"
-        })

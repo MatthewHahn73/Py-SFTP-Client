@@ -282,6 +282,17 @@
            </widget>
           </item>
           <item>
+           <widget class="QPushButton" name="ConnectedCreateFolder">
+            <property name="text">
+             <string/>
+            </property>
+            <property name="icon">
+             <iconset>
+              <normaloff>../Icons/folder-add.svg</normaloff>../Icons/folder-add.svg</iconset>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QPushButton" name="ConnectedHiddenToggleCheckbox">
             <property name="focusPolicy">
              <enum>Qt::FocusPolicy::NoFocus</enum>
@@ -362,6 +373,17 @@
             <property name="icon">
              <iconset>
               <normaloff>../Icons/view-refresh.svg</normaloff>../Icons/view-refresh.svg</iconset>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="CurrentCreateFolder">
+            <property name="text">
+             <string/>
+            </property>
+            <property name="icon">
+             <iconset>
+              <normaloff>../Icons/folder-add.svg</normaloff>../Icons/folder-add.svg</iconset>
             </property>
            </widget>
           </item>
@@ -449,8 +471,6 @@
      <string>Server</string>
     </property>
     <addaction name="actionDisconnect"/>
-    <addaction name="separator"/>
-    <addaction name="actionCancelCurrent"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuOptions"/>

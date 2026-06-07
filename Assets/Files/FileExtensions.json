@@ -35,6 +35,13 @@
   ".flv": "Flash Video",
   ".flac": "Free Lossless Audio Codec File",
   ".gba": "Gameboy Advanced ROM",
+  ".gbc": "Gameboy Color ROM",
+  ".gb": "Gameboy ROM",
+  ".rvz": "Compressed Wii/GameCube ROM",
+  ".cci": "Cerbios Compressed ISO",
+  ".nds": "Nintendo DS Game ROM",
+  ".dll": "Dynamic Link Library",
+  ".dmp": "Windows Memory Dump",
   ".bin": "Generic Binary File",
   ".gif": "Graphical Interchange Format File",
   ".html": "Hypertext Markup Language File",
@@ -99,5 +106,11 @@
   ".xps": "XML Paper Specification File",
   ".yml": "YAML Document",
   ".zip": "Zipped File", 
-  ".srt": "SubRip Subtitle File"
+  ".zipx": "Extended Zip File",
+  ".srt": "SubRip Subtitle File",
+  ".blend": "Blender 3D Data File",
+  ".ods": "OpenDocument Spreadsheet", 
+  ".xlr": "Works Spreadsheet", 
+  ".sav": "Game Save File", 
+  ".set": "Settings File"
 }
